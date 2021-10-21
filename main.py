@@ -45,10 +45,10 @@ class GetDataFromPcap:
                 # remove the last chapter(".") from the domain name
                 dict_dns_data = {"domain_name": domain_name[:-1]}
                 dns_list.append(dict_dns_data)
-        self.CreateToJsonFile(self.http_file_name, http_list)
-        self.CreateToJsonFile(self.dns_file_name, dns_list)
+        self.ListToJsonFile(self.http_file_name, http_list)
+        self.ListToJsonFile(self.dns_file_name, dns_list)
 
-    def CreateToJsonFile(self, filename: str, list_of_data: list) -> None:
+    def ListToJsonFile(self, filename: str, list_of_data: list) -> None:
         with open(filename + '.json', 'w', encoding='utf-8') as f:
             json.dump(list_of_data, f, indent=2)
         print("the file " + filename + " created successfully")
