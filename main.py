@@ -8,17 +8,17 @@ from pathlib import Path
 
 
 class GetDataFromPcap:
-    def __init__(self, file_patch: str, http_file_name: str, dns_file_name: str):
-        self.file_patch = file_patch
+    def __init__(self, file_path: str, http_file_name: str, dns_file_name: str):
+        self.file_path = file_path
         self.http_file_name = http_file_name
         self.dns_file_name = dns_file_name
         self.geo_ip = {}
 
     def CreateJsonFileFromPcapFile(self) -> bool:
-        if Path(self.file_patch).is_file() is False:
+        if Path(self.file_path).is_file() is False:
             print("the pcap file Doesn't exists or wrong directory")
             return False
-        packets_list = rdpcap(self.file_patch)
+        packets_list = rdpcap(self.file_path)
         dns_list = []
         http_list = []
         for p in packets_list:
