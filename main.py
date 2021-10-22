@@ -2,7 +2,8 @@ from scapy.all import *
 from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.http import HTTP, HTTPRequest
 import json
-from geoip import geolite2
+import requests
+import time
 from pathlib import Path
 
 
@@ -11,6 +12,7 @@ class GetDataFromPcap:
         self.file_patch = file_patch
         self.http_file_name = http_file_name
         self.dns_file_name = dns_file_name
+        self.geo_ip = {}
 
     def CreateJsonFileFromPcapFile(self) -> bool:
         if Path(self.file_patch).is_file() is False:
@@ -54,10 +56,21 @@ class GetDataFromPcap:
         print("the file " + filename + " created successfully")
 
     def GetGeoLocation(self, ip: str) -> str:
-        match = geolite2.lookup(ip)
-        if match is not None:
-            return match.country
-        return "unknown"
+        if ip in self.geo_ip:
+            return self.geo_ip[ip]
+        else:
+            response = requests.get(f"http://ip-api.com/json/{ip}")
+            try:
+                api_data = response.json()
+                if response.status_code == 200:
+                    if api_data['status'] == "success":
+                        self.geo_ip[ip] = api_data['country']
+                        return api_data['country']
+                self.geo_ip[ip] = "unknown"
+                return "unknown"
+            except AttributeError:
+                print("Http Error: " + f"{response.status_code}")
+                return "ERROR"
 
 
 pcap_file = GetDataFromPcap('2019-08-13-MedusaHTTP-malware-traffic.pcap', "HttpFile", "DnsFile")
