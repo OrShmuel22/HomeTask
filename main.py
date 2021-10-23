@@ -3,7 +3,7 @@ from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.http import HTTP, HTTPRequest
 import json
 import requests
-
+import sys
 
 class PcapDataReader:
     def __init__(self, file_path: str, http_file_name: str, dns_file_name: str):
@@ -108,5 +108,13 @@ class PcapDataReader:
             yield list_ip[i:i + max_ip_for_batch]
 
 
-pcap_file = PcapDataReader('2019-08-13-MedusaHTTP-malware-traffic.pcap', "HttpFile", "DnsFile")
-pcap_file.create_json_file_from_pcap_file()
+if __name__ == "__main__":
+    try:
+        file_name = sys.argv[1]
+        http_file_name = sys.argv[2]
+        dns_file_name = sys.argv[3]
+        pcap_file = PcapDataReader(file_name, http_file_name, dns_file_name)
+        pcap_file.create_json_file_from_pcap_file()
+    except IndexError as error:
+        print("One of the parameters is wrong or missing")
+        print("'pcap_file_path' 'http_file_name' 'dns_file_name'")
