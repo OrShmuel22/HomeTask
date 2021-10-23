@@ -5,6 +5,7 @@ import json
 import requests
 import sys
 
+
 class PcapDataReader:
     def __init__(self, file_path: str, http_file_name: str, dns_file_name: str):
         self.file_path = file_path
