@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 
-class GetDataFromPcap:
+class PcapDataReader:
     def __init__(self, file_path: str, http_file_name: str, dns_file_name: str):
         self.file_path = file_path
         self.http_file_name = http_file_name
@@ -15,12 +15,13 @@ class GetDataFromPcap:
         self.geo_ip = {}
 
     def CreateJsonFileFromPcapFile(self) -> bool:
-        if Path(self.file_path).is_file() is False:
+        if not Path(self.file_path).is_file():
             print("the pcap file Doesn't exists or wrong directory")
             return False
         packets_list = rdpcap(self.file_path)
         dns_list = []
         http_list = []
+        ip_set = set()
         for p in packets_list:
             if p.haslayer(HTTPRequest):
                 ip_source = p.getlayer("IP").src
@@ -30,14 +31,13 @@ class GetDataFromPcap:
                 request_data = p.getlayer("HTTP Request").Path.decode("UTF-8")
                 http_host = p.getlayer("HTTP Request").Host.decode("UTF-8")
                 http_method = p.getlayer("HTTP Request").Method.decode("UTF-8")
-                source_geo_ip = self.GetGeoLocation(ip_source)
-                destination_geo_ip = self.GetGeoLocation(ip_destination)
+                ip_set.update([ip_source, ip_destination])
                 dict_http_data = {"ip_source": ip_source,
                                   "source_port": source_port,
-                                  "source_geo_ip": source_geo_ip,
+                                  "source_geo_ip": "unknown",
                                   "ip_destination": ip_destination,
                                   "destination_port": destination_port,
-                                  "destination_geo_ip": destination_geo_ip,
+                                  "destination_geo_ip": "unknown",
                                   "request_data": request_data,
                                   "http_host": http_host,
                                   "http_method": http_method}
@@ -47,6 +47,7 @@ class GetDataFromPcap:
                 # remove the last chapter(".") from the domain name
                 dict_dns_data = {"domain_name": domain_name[:-1]}
                 dns_list.append(dict_dns_data)
+        self.GetGeoLocation(ip_set, http_list)
         self.ListToJsonFile(self.http_file_name, http_list)
         self.ListToJsonFile(self.dns_file_name, dns_list)
 
@@ -55,23 +56,23 @@ class GetDataFromPcap:
             json.dump(list_of_data, f, indent=2)
         print("the file " + filename + " created successfully")
 
-    def GetGeoLocation(self, ip: str) -> str:
-        if ip in self.geo_ip:
-            return self.geo_ip[ip]
-        else:
-            response = requests.get(f"http://ip-api.com/json/{ip}")
-            try:
-                api_data = response.json()
-                if response.status_code == 200:
-                    if api_data['status'] == "success":
-                        self.geo_ip[ip] = api_data['country']
-                        return api_data['country']
+    def GetGeoLocation(self, ip_set: set, http_list: list) :
+        api_url = "http://ip-api.com/batch?fields=57345"
+        ip_list = list(ip_set)
+        ip_api = requests.post(api_url, data=f"{json.dumps(ip_list)}")
+        data_from_api = ip_api.json()
+        for data in data_from_api:
+            status = data["status"]
+            ip = data["query"]
+            if status == "success":
+                country = data["country"]
+                self.geo_ip[ip] = country
+            else:
                 self.geo_ip[ip] = "unknown"
-                return "unknown"
-            except AttributeError:
-                print("Http Error: " + f"{response.status_code}")
-                return "ERROR"
+        for data in http_list:
+            print(data)
 
 
-pcap_file = GetDataFromPcap('2019-08-13-MedusaHTTP-malware-traffic.pcap', "HttpFile", "DnsFile")
+
+pcap_file = PcapDataReader('2019-08-13-MedusaHTTP-malware-traffic.pcap', "HttpFile", "DnsFile")
 pcap_file.CreateJsonFileFromPcapFile()
