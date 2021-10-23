@@ -3,8 +3,6 @@ from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.http import HTTP, HTTPRequest
 import json
 import requests
-import time
-from pathlib import Path
 
 
 class PcapDataReader:
@@ -13,44 +11,47 @@ class PcapDataReader:
         self.http_file_name = http_file_name
         self.dns_file_name = dns_file_name
 
-    def create_json_file_from_pcap_file(self):
+    def build_http_entity(self, pac: HTTPRequest, ip_set: set) -> dict and set:
+        ip_source = pac.getlayer("IP").src
+        source_port = pac.getlayer("TCP").sport
+        ip_destination = pac.getlayer("IP").dst
+        destination_port = pac.getlayer("TCP").dport
+        request_data = pac.getlayer("HTTP Request").Path.decode("UTF-8")
+        http_host = pac.getlayer("HTTP Request").Host.decode("UTF-8")
+        http_method = pac.getlayer("HTTP Request").Method.decode("UTF-8")
+        ip_set.update([ip_source, ip_destination])
+        dict_http_data = {"ip_source": ip_source,
+                          "source_port": source_port,
+                          "source_geo_ip": "",
+                          "ip_destination": ip_destination,
+                          "destination_port": destination_port,
+                          "destination_geo_ip": "",
+                          "request_data": request_data,
+                          "http_host": http_host,
+                          "http_method": http_method}
+        return dict_http_data, ip_set
+
+    def create_json_file_from_pcap_file(self) -> None:
         try:
             packets_list = rdpcap(self.file_path)
-            try:
-                dns_list = []
-                http_list = []
-                ip_set = set()
-                for p in packets_list:
-                    if p.haslayer(HTTPRequest):
-                        ip_source = p.getlayer("IP").src
-                        source_port = p.getlayer("TCP").sport
-                        ip_destination = p.getlayer("IP").dst
-                        destination_port = p.getlayer("TCP").dport
-                        request_data = p.getlayer("HTTP Request").Path.decode("UTF-8")
-                        http_host = p.getlayer("HTTP Request").Host.decode("UTF-8")
-                        http_method = p.getlayer("HTTP Request").Method.decode("UTF-8")
-                        ip_set.update([ip_source, ip_destination])
-                        dict_http_data = {"ip_source": ip_source,
-                                          "source_port": source_port,
-                                          "source_geo_ip": "",
-                                          "ip_destination": ip_destination,
-                                          "destination_port": destination_port,
-                                          "destination_geo_ip": "",
-                                          "request_data": request_data,
-                                          "http_host": http_host,
-                                          "http_method": http_method}
-                        http_list.append(dict_http_data)
-                    if p.haslayer(DNSQR):
-                        domain_name = p.qd.qname.decode("UTF-8")
-                        # remove the last chapter(".") from the domain name
-                        dict_dns_data = {"domain_name": domain_name[:-1]}
-                        dns_list.append(dict_dns_data)
-                self.get_geo_location(ip_set, http_list)
-                self.list_to_json_file(self.http_file_name, http_list)
-                self.list_to_json_file(self.dns_file_name, dns_list)
-            except Exception as error:
-                print("Something went wrong")
-                print("Error:" + str(error))
+            dns_list = []
+            http_list = []
+            ip_set = set()
+            for pac in packets_list:
+                if pac.haslayer(HTTPRequest):
+                    dict_http_data = self.build_http_entity(pac, ip_set)
+                    http_list.append(dict_http_data[0])
+                if pac.haslayer(DNSQR):
+                    domain_name = pac.qd.qname.decode("UTF-8")
+                    # remove the last chapter(".") from the domain name
+                    dict_dns_data = {"domain_name": domain_name[:-1]}
+                    dns_list.append(dict_dns_data)
+            self.get_geo_location(ip_set, http_list)
+            self.list_to_json_file(self.http_file_name, http_list)
+            self.list_to_json_file(self.dns_file_name, dns_list)
+        except Exception as error:
+            print("Something went wrong")
+            print("Error:" + str(error))
         except FileNotFoundError as error:
             print("the pcap file Doesn't exists or wrong directory")
             print("Error:" + str(error))
@@ -60,12 +61,23 @@ class PcapDataReader:
             json.dump(list_of_data, f, indent=2)
         print("the file " + filename + " created successfully")
 
-    def get_geo_location(self, ip_set: set, http_list: list):
+    def append_geoip_data(self, data_from_api, geo_ip: dict) -> dict:
+        for data in data_from_api:
+            status = data["status"]
+            ip = data["query"]
+            if status == "success":
+                country = data["country"]
+                geo_ip[ip] = country
+            else:
+                geo_ip[ip] = "unknown"
+        return geo_ip
+
+    def get_geo_location(self, ip_set: set, http_list: list) -> list:
         geo_ip = {}
         # fields return only status and country
         api_url = "http://ip-api.com/batch?fields=57345"
         ip_list = list(ip_set)
-        # maximum batch process of ip per batch is 100
+        # maximum ip per batch process
         max_batch_ip = 100
         chunk_list = []
         if len(ip_list) > max_batch_ip:
@@ -74,25 +86,12 @@ class PcapDataReader:
             for chunk in range(0, len(chunk_list)):
                 ip_api = requests.post(api_url, data=f"{json.dumps(chunk_list[chunk])}")
                 data_from_api = ip_api.json()
-                for data in data_from_api:
-                    status = data["status"]
-                    ip = data["query"]
-                    if status == "success":
-                        country = data["country"]
-                        geo_ip[ip] = country
-                    else:
-                        geo_ip[ip] = "unknown"
+                self.append_geoip_data(data_from_api, geo_ip)
         else:
             ip_api = requests.post(api_url, data=f"{json.dumps(ip_list)}")
             data_from_api = ip_api.json()
-            for data in data_from_api:
-                status = data["status"]
-                ip = data["query"]
-                if status == "success":
-                    country = data["country"]
-                    geo_ip[ip] = country
-                else:
-                    geo_ip[ip] = "unknown"
+            self.append_geoip_data(data_from_api, geo_ip)
+
         # return the list with update geo ip values
         for data in http_list:
             ip_source = data['ip_source']
